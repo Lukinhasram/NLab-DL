@@ -1,0 +1,32 @@
+# Environment variables
+.env
+
+# Large database dumps & backups
+*.sql.gz
+backup.sql
+data/dumps/*.sql
+data/dumps/*.sql.gz
+
+# Upstream nLab content mirror & generated logs
+data/nlab-content/
+nlab/
+nlab-content/
+full_log.txt
+
+# Local Docker / Data Lake volumes
+data/volumes/
+data/lake/
+
+# Python environments & cache
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
