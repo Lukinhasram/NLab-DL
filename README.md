@@ -1,6 +1,6 @@
-# NLab-DL — nLab MariaDB Source & Data Lake Foundation
+# NLab-DL — nLab MariaDB Source & Data Lake Platform
 
-This repository provides a clean, reproducible setup to rebuild the complete **nLab MariaDB relational database** (real wiki content + full git revision history + relational enrichment + optional 1,000,000-page scaling), organized as the OLTP source foundation for a **Data Lake boilerplate**.
+This repository provides a complete, reproducible **OLTP-to-Data-Lake** stack built around the **nLab mathematical wiki** (`nlab_db` in MariaDB 11: real wiki content + full git revision history + relational enrichment + 1,000,000-page scaling), unified with a Medallion Lakehouse (**Silo S3 + Airflow + DuckDB + Hive Metastore + Trino + Apache Superset**) calibrated to run comfortably on hosts with up to **16 GB RAM**.
 
 ---
 
@@ -8,37 +8,48 @@ This repository provides a clean, reproducible setup to rebuild the complete **n
 
 ```text
 NLab-DL/
-├── .env.example                          # Default MariaDB & pipeline configuration
+├── .env.example                          # Default MariaDB & Data Lake configuration
 ├── .gitignore
-├── docker-compose.yml                    # MariaDB service (ready to extend with Data Lake services)
-├── requirements.txt                      # Python dependencies
+├── docker-compose.yml                    # Unified stack: MariaDB + Silo + HMS + Trino + Airflow + Superset
+├── requirements.txt                      # Host-side Python dependencies (DB rebuild scripts)
 ├── docs/
 │   └── er-diagram.png                    # Final 7-table enriched ER diagram
 ├── data/
 │   └── dumps/
 │       ├── .gitkeep                      # Place SQL dumps (dump_completo.sql) here
-│       └── dump_completo.sql             # (gitignored) Full 1M-page MariaDB dump
-└── database/
+│       └── dump_completo.sql             # (gitignored) Full 1M-page MariaDB dump (~4.88 GB)
+├── database/
+│   ├── sql/
+│   │   └── 01_schema.sql                 # Base 5-table MariaDB DDL (for rebuild from scratch)
+│   └── pipeline/                         # OLTP rebuild, dump restore & 1M-page scaling scripts
+└── platform/
+    ├── README.md                         # Data Lake quick reference & credentials
+    ├── airflow/                          # Airflow 2.10 + DuckDB (httpfs & mysql pre-installed)
+    ├── dags/
+    │   └── pipeline_nlab.py              # Medallion DAG: Bronze -> Prata -> Ouro -> HMS
+    ├── hive/
+    │   └── metastore-site.xml            # Hive Metastore config (mariadb-metastore + Silo S3A)
+    ├── pipeline/
+    │   ├── config.py                     # Shared MariaDB, Silo S3, DuckDB & HMS helpers
+    │   ├── bronze.py                     # Chunked MariaDB -> Silo Parquet (Snappy, partitioned)
+    │   ├── prata.py                      # DuckDB cleaning, LONGTEXT metrics & link resolution
+    │   ├── ouro.py                       # DuckDB Star Schema (5 dims + 2 facts)
+    │   ├── registrar_tabelas.py          # Hive Metastore catalog + Bronze partition registration
+    │   └── run.py                        # CLI orchestrator for manual runs
     ├── sql/
-    │   └── 01_schema.sql                 # Base 5-table MariaDB DDL (for rebuild from scratch)
-    └── pipeline/
-        ├── config.py                     # Shared .env / CLI config & DB connection helper
-        ├── restore_dump.py               # Restores dump_completo.sql into MariaDB + verifies counts
-        ├── rebuild_db.py                 # End-to-end orchestrator (--from-dump or full ETL rebuild)
-        ├── 00_fetch_source.py            # Clones ncatlab/nlab-content & generates full_log.txt
-        ├── 01_etl_base.py                # Loads webs, pages, wiki_references (L/W/R/I)
-        ├── 02_etl_revisions.py           # Reconstructs full chronological git revision history
-        ├── 03_mock_wiki_files.py         # Populates wiki_files from earliest citation in revisions
-        ├── 04_etl_extra_reftypes.py      # Extracts C (categories) & F/E (file links)
-        ├── 05_enrich_model.py            # Normalizes users & categories, adds metrics & 8 FKs
-        ├── 06_fix_temporal_meta.py       # Optional: mocks coherent monotonic timestamps
-        ├── 07_generate_1m_pages.py       # Scales database to 1,000,000 pages with full integrity
-        └── check_cardinality.py          # Prints exact row counts for all tables
+    │   ├── verificar.sql                 # Trino smoke tests across bronze/prata/ouro & MariaDB
+    │   └── consultas_analiticas.sql      # 11 ready-to-use Trino/Superset analytics queries
+    ├── superset/                         # Superset 3.1 + sqlalchemy-trino
+    └── trino/
+        ├── catalog/
+        │   ├── hive.properties           # Trino Hive connector -> Silo S3 + HMS
+        │   └── mariadb_fonte.properties  # Federated Trino MariaDB connector -> nlab_db
+        └── etc/                          # Trino JVM & memory configuration (16 GB host budget)
 ```
 
 ---
 
-## Final Relational Schema (7 Tables)
+## Final Relational Schema (OLTP — 7 Tables)
 
 The base DDL (`database/sql/01_schema.sql`) creates the 5 core wiki tables (`webs`, `pages`, `revisions`, `wiki_files`, `wiki_references`). Step 5 (`05_enrich_model.py`) normalizes `users` and `categories`, backfills `wiki_files.file_type`, adds denormalized page metrics, resolves polymorphic references, and enforces 8 InnoDB foreign keys:
 
@@ -48,117 +59,76 @@ The base DDL (`database/sql/01_schema.sql`) creates the 5 core wiki tables (`web
 | :--- | :--- |
 | `webs` | Root wiki instance (`nLab`) |
 | `pages` | Wiki pages with denormalized `revision_count`, `first_revised_at`, `last_revised_at` |
-| `revisions` | Full chronological edit history (`content`, `revised_at`, `author_id -> users.id`) |
+| `revisions` | Full chronological edit history (`content LONGTEXT`, `revised_at`, `author_id -> users.id`) |
 | `users` | Normalized authors with `total_revisions`, `pages_created`, `first_edit_at`, `last_edit_at` |
 | `categories` | Normalized page categories (`page_count`) |
 | `wiki_files` | Referenced media/files (`file_name`, `file_type`, `description`) |
-| `wiki_references` | Wiki link graph (`L`, `W`, `R`, `I`, `C`, `F`, `E`) with resolved nullable FKs (`target_page_id`, `category_id`, `file_id`) |
+| `wiki_references` | Wiki link graph (`L`, `W`, `R`, `I`, `C`, `F`, `E`) with resolved nullable FKs |
 
 ---
 
-## Prerequisites
+## Data Lake Architecture (Medallion)
 
-- **Docker** & **Docker Compose**
-- **Python 3.10+**
-- **Git** (needed only for Option A: full rebuild from `ncatlab/nlab-content`)
+* **Object Storage:** **Silo (`pgsty/silo` + `pgsty/mc`)** — open-source drop-in fork of MinIO (`:9000` S3 API, `:9001` Web Console).
+* **Bronze (`s3a://bronze/{tabela}/dt_ingestao=YYYY-MM-DD/`):** faithful Snappy Parquet extract from MariaDB paginated by primary-key `id` ranges (`revisions` in uniform 5k-ID chunks to bound RAM on `LONGTEXT`; `pages` in 100k; `wiki_references` in 250k) with formal Hive partitions.
+* **Prata (`s3a://prata/{tabela}/`):** DuckDB out-of-core transformations (`1000MB` memory limit + spill-to-disk, tuned for 16 GB hosts / 8 GB WSL2 default). Extracts text metrics (`content_length`, `word_count`, `internal_link_count`, `fl_possui_latex`) from `revisions.content` without duplicating gigabytes of raw text, and resolves missing synthetic `target_page_id` references.
+* **Ouro (`s3a://ouro/{tabela}/`):** dimensional Star Schema (`dim_tempo`, `dim_usuario`, `dim_categoria`, `dim_tipo_referencia`, `dim_pagina`, `fato_revisoes`, `fato_referencias`) served via **Trino** and **Apache Superset**.
 
 ---
 
 ## Quickstart
 
-### 1. Configure environment & Python virtualenv
+### 1. Configure environment
 
 ```bash
 cp .env.example .env
-
-python -m venv .venv
-# Linux / macOS:
-source .venv/bin/activate
-# Windows (PowerShell):
-# .venv\Scripts\Activate.ps1
-
-pip install -r requirements.txt
 ```
 
-### 2. Start MariaDB (loads `dump_completo.sql` automatically)
+### 2. Build and start the unified stack
 
-Place `dump_completo.sql` in `data/dumps/dump_completo.sql` and start the container:
+Place `dump_completo.sql` in `data/dumps/dump_completo.sql` (if starting fresh) and bring up the platform:
 
 ```bash
-docker compose up -d mariadb
+docker compose build airflow superset
+docker compose up -d
 ```
 
-On first startup (empty `mariadb_data` volume), MariaDB automatically imports `data/dumps/dump_completo.sql` (1,000,000 pages, 1,536,920 revisions, 5,931,831 references, all 7 tables and 8 FKs). Follow progress with:
+> On first startup with an empty `mariadb_data` volume, `nlab_mariadb` automatically imports `data/dumps/dump_completo.sql` (1M pages, 1.53M revisions, 5.93M references). Follow progress with `docker logs -f nlab_mariadb`.
 
-```bash
-docker logs -f nlab_mariadb
-```
+### 3. Run the Medallion Pipeline
+
+* **Airflow UI (`http://localhost:8082`):** log in with `admin` / `admin`, enable and trigger **`pipeline_nlab`**.
+* **CLI inside the Airflow container:**
+  ```bash
+  docker exec -it airflow python /opt/airflow/pipeline/run.py
+  ```
+
+### 4. Query & Visualize
+
+* **Verify tables in Trino:**
+  ```bash
+  docker exec -i trino trino < platform/sql/verificar.sql
+  ```
+* **Silo Console:** `http://localhost:9001` (`siloadmin` / `siloadmin123`)
+* **Trino Web UI:** `http://localhost:8080`
+* **Apache Superset:** `http://localhost:8088` (`admin` / `admin`) → add database `trino://trino@trino:8080/hive` and run queries from `platform/sql/consultas_analiticas.sql`.
 
 ---
 
-## Option A: Restore from `dump_completo.sql` via Pipeline (Running Container)
+## OLTP Database Utilities (Optional)
 
-If MariaDB is already running and you want to (re)load the dump manually with live progress and automatic row-count verification:
+If you want to inspect MariaDB row counts, restore a dump manually, or rebuild `nlab_db` from upstream `ncatlab/nlab-content`:
 
 ```bash
-# Stream data/dumps/dump_completo.sql into nlab_mariadb and verify counts
+python -m venv .venv
+pip install -r requirements.txt
+
+# Check exact MariaDB row counts
+python database/pipeline/check_cardinality.py
+
+# Restore dump into running nlab_mariadb
 python database/pipeline/restore_dump.py --recreate-db
 
-# Or via the unified orchestrator:
-python database/pipeline/rebuild_db.py --from-dump --reset
-```
-
----
-
-## Option B: Full Rebuild from Scratch (Upstream `nlab-content`)
-
-If you don't have `dump_completo.sql` and want to rebuild the entire database from `ncatlab/nlab-content`:
-
-1. In `docker-compose.yml`, swap the init mount from `dump_completo.sql` to `database/sql/01_schema.sql` and run `docker compose down -v && docker compose up -d mariadb`.
-2. Run the end-to-end orchestrator:
-
-```bash
-# Complete rebuild (real nLab data + full git history + enrichment + 1M pages)
+# Full rebuild from upstream git mirror
 python database/pipeline/rebuild_db.py
 ```
-
-Useful modes:
-
-```bash
-# Real nLab dataset only (~20.7k pages, ~206k revisions), without 1M synthetic scaling
-python database/pipeline/rebuild_db.py --skip-scale
-
-# Fast dev mode (snapshot revisions only, no git history walk, no 1M scaling)
-python database/pipeline/rebuild_db.py --snapshot-only --skip-scale
-
-# Custom scale target (e.g. 100k pages)
-python database/pipeline/rebuild_db.py --target-pages 100000
-```
-
-You can also run any step individually (all scripts accept `--host`, `--port`, `--user`, `--password`, `--database`, and read defaults from `.env`):
-
-```bash
-python database/pipeline/00_fetch_source.py
-python database/pipeline/01_etl_base.py --skip-revisions
-python database/pipeline/02_etl_revisions.py
-python database/pipeline/03_mock_wiki_files.py
-python database/pipeline/04_etl_extra_reftypes.py
-python database/pipeline/05_enrich_model.py
-python database/pipeline/07_generate_1m_pages.py --target 1000000
-```
-
----
-
-## Verification
-
-Check exact row counts across all tables:
-
-```bash
-python database/pipeline/check_cardinality.py
-```
-
----
-
-## Next Steps (Data Lake Boilerplate)
-
-With the MariaDB OLTP source isolated under `database/`, this repo is ready to be extended with Data Lake components (for example: object storage like MinIO, ingestion/CDC, Bronze/Silver/Gold layers, Spark/DuckDB/Trino, and orchestration) by adding new services to `docker-compose.yml` and modules at the repository root.
