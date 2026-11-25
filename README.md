@@ -16,8 +16,9 @@ NLab-DL/
 │   └── er-diagram.png                    # Final 7-table enriched ER diagram
 ├── data/
 │   └── dumps/
-│       ├── .gitkeep                      # Place SQL dumps (dump_completo.sql) here
-│       └── dump_completo.sql             # (gitignored) Full 1M-page MariaDB dump (~4.88 GB)
+│       ├── .gitkeep
+│       ├── dump_dev.sql.gz               # Lightweight dev dump (~29 MB, included in Git, loads in < 15s)
+│       └── dump_completo.sql             # (gitignored) Optional full 1M-page MariaDB dump (~4.88 GB)
 ├── database/
 │   ├── sql/
 │   │   └── 01_schema.sql                 # Base 5-table MariaDB DDL (for rebuild from scratch)
@@ -86,14 +87,14 @@ cp .env.example .env
 
 ### 2. Build and start the unified stack
 
-Place `dump_completo.sql` in `data/dumps/dump_completo.sql` (if starting fresh) and bring up the platform:
+The repository ships with a lightweight, relationally complete **`data/dumps/dump_dev.sql.gz`** (~29 MB: 4,706 pages, 17,114 revisions, 80,096 references, all 7 tables and 8 FKs) mounted by default so anyone can clone and run the full Data Lake in **under 1 minute**:
 
 ```bash
 docker compose build airflow superset
 docker compose up -d
 ```
 
-> On first startup with an empty `mariadb_data` volume, `nlab_mariadb` automatically imports `data/dumps/dump_completo.sql` (1M pages, 1.53M revisions, 5.93M references). Follow progress with `docker logs -f nlab_mariadb`.
+> Want to run against the full 1M-page dataset (~4.88 GB, ~15–25 min initial import)? Place `dump_completo.sql` in `data/dumps/dump_completo.sql`, swap the init volume line in `docker-compose.yml`, and recreate the `mariadb_data` volume (`docker compose down -v && docker compose up -d`).
 
 ### 3. Run the Medallion Pipeline
 

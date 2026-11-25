@@ -34,7 +34,7 @@ docker stats --no-stream
 docker logs -f nlab_mariadb
 ```
 
-> **Primeira subida (importação de `dump_completo.sql`):** com o volume `mariadb_data` vazio, a importação dos 4,88 GB pode levar de 10 a 25 minutos dependendo do SSD. O `airflow` aguarda automaticamente o `nlab_mariadb` ficar `healthy`.
+> **Base padrão leve incluída no Git (`data/dumps/dump_dev.sql.gz`, ~29 MB):** já vem montada por padrão no `docker-compose.yml` com todas as 7 tabelas e 8 FKs (4.706 páginas reais+sintéticas, 17.114 revisões, 80.096 referências). Sobe o MariaDB em **< 15s** e roda o pipeline Medallion completo em **~80s**. Para usar o dump completo de 1M páginas (4,88 GB), basta descomentar a linha do `dump_completo.sql` no `docker-compose.yml`.
 >
 > **Nota para Windows/WSL2 (16 GB de RAM):** os limites padrão (`DUCKDB_MEMORY_LIMIT=1000MB`, `revisions` em lotes de `5.000` IDs, `Trino -Xmx1536m`, `MariaDB 512M` buffer pool) foram calibrados para rodar dentro dos 8 GB padrão do WSL2. Se tiver mais RAM disponível, pode aumentar via `.env` ou `.wslconfig`.
 
