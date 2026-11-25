@@ -1,0 +1,13 @@
+# Padroniza quebras de linha LF para evitar erros de CRLF no Windows/Docker
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.properties text eol=lf
+*.xml text eol=lf
+*.sql text eol=lf
+.env.example text eol=lf
+Dockerfile text eol=lf
+*.gz binary
+*.png binary

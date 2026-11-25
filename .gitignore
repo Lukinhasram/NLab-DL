@@ -1,11 +1,12 @@
 # Environment variables
 .env
 
-# Large database dumps & backups
+# Large database dumps & backups (keep lightweight dump_dev.sql.gz in Git)
 *.sql.gz
 backup.sql
 data/dumps/*.sql
 data/dumps/*.sql.gz
+!data/dumps/dump_dev.sql.gz
 
 # Upstream nLab content mirror & generated logs
 data/nlab-content/
