@@ -101,6 +101,15 @@ def get_s3():
     )
 
 
+def garantir_buckets_s3(s3, buckets: tuple[str, ...] = (BUCKET_BRONZE, BUCKET_PRATA, BUCKET_OURO, "warehouse")) -> None:
+    """Garante via boto3 que os buckets do Data Lake existem no Silo."""
+    existentes = {b["Name"] for b in s3.list_buckets().get("Buckets", [])}
+    for bucket in buckets:
+        if bucket not in existentes:
+            s3.create_bucket(Bucket=bucket)
+            log.info(f"  Bucket criado automaticamente no Silo: {bucket}")
+
+
 def limpar_prefixo_s3(s3, bucket: str, prefix: str) -> int:
     """
     Remove todos os objetos sob um prefixo no Silo antes de regravar.

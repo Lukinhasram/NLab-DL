@@ -130,7 +130,7 @@ def registrar_particao_bronze(nome: str, cols: list[FieldSchema], dt_ingestao: s
         parameters={},
     )
     try:
-        _hms(lambda c: c.add_partition(part))
+        _hms(lambda c: c.add_partitions([part]))
         log.info(f"    OK particao bronze.{nome} [dt_ingestao={dt_ingestao}]")
     except Exception as exc:
         if "AlreadyExists" in type(exc).__name__:

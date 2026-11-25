@@ -167,7 +167,7 @@ def _sql_revisions(dt_ingestao: str) -> str:
                 CAST(revised_at AS TIMESTAMP) AS revised_at,
                 CAST(revised_at AS DATE) AS dt_revisao,
                 CAST(EXTRACT(HOUR FROM revised_at) AS BIGINT) AS hr_revisao,
-                CAST(COALESCE(OCTET_LENGTH(content), 0) AS BIGINT) AS content_length,
+                CAST(COALESCE(STRLEN(content), 0) AS BIGINT) AS content_length,
                 CAST(
                     CASE
                         WHEN content IS NULL OR TRIM(content) = '' THEN 0

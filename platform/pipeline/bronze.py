@@ -24,6 +24,7 @@ from config import (
     BUCKET_BRONZE,
     CHUNK_SIZES,
     TABELAS_FONTE,
+    garantir_buckets_s3,
     get_duckdb_conn,
     get_mariadb_conn,
     get_s3,
@@ -222,6 +223,7 @@ def executar_bronze(dt_ingestao: str | None = None, tabelas: list[str] | None = 
     log.info("=" * 60)
 
     s3 = get_s3()
+    garantir_buckets_s3(s3)
     mdb_conn = get_mariadb_conn()
     con = get_duckdb_conn(attach_mariadb=True)
     metricas: list[dict] = []
